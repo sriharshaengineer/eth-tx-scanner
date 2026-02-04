@@ -21,7 +21,11 @@ A blazing-fast Ethereum transaction scanner designed to discover and analyze con
 ## 🛠️ Installation
 
 1. Clone or download the repository.
-2. Install dependencies:
+2. Use the recommended Node.js version:
+   ```bash
+   nvm use
+   ```
+3. Install dependencies:
    ```bash
    npm install
    ```
