@@ -2,6 +2,7 @@ const { ethers } = require("ethers");
 const fetch = require("node-fetch");
 require("dotenv").config();
 
+//TODO:: GET OWNER FOR ALL
 /**
  * Optimized Transaction Scanner
  * Uses Etherscan API to fetch transaction history much faster for a specific address.
@@ -45,6 +46,53 @@ async function getContractCreationHash(config, address) {
         }
     } catch (err) {}
     return null;
+}
+
+async function getContractABI(config, address) {
+    if (API_KEY === "YourApiKeyToken") return null;
+    try {
+        const url = `${config.etherscanBase}?module=contract&action=getabi&address=${address}&chainid=${config.chainid}&apikey=${API_KEY}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.status === "1") {
+            return JSON.parse(data.result);
+        }
+    } catch (err) {}
+    return null;
+}
+
+async function fetchParams(provider, address, abi) {
+    if (!abi) return {};
+    const params = {};
+    const contract = new ethers.Contract(address, abi, provider);
+
+    const skipFunctions = ["name", "symbol", "decimals", "owner", "implementation", "admin", "getProxyAdmin", "getImplementation"];
+
+    const viewFunctions = abi.filter(item => 
+        item.type === "function" && 
+        (item.stateMutability === "view" || item.stateMutability === "pure") &&
+        item.inputs.length === 0
+    );
+
+    for (const func of viewFunctions) {
+        if (skipFunctions.includes(func.name)) continue;
+        try {
+            const result = await contract[func.name]();
+            // Format the result
+            if (typeof result === "bigint") {
+                params[func.name] = result.toString();
+            } else if (typeof result === "string" && ethers.isAddress(result)) {
+                params[func.name] = result;
+            } else if (Array.isArray(result)) {
+                params[func.name] = result.map(v => typeof v === "bigint" ? v.toString() : v).join(", ");
+            } else {
+                params[func.name] = result.toString();
+            }
+        } catch (e) {
+            // Silently skip if call fails
+        }
+    }
+    return params;
 }
 
 async function verifyProxyOnEtherscan(config, proxyAddress, implementationAddress) {
@@ -93,7 +141,8 @@ async function analyzeContract(provider, config, address) {
         beacon: null,
         proxyVerification: null,
         name: null,
-        implementationName: null
+        implementationName: null,
+        params: {}
     };
 
     try {
@@ -181,6 +230,22 @@ async function analyzeContract(provider, config, address) {
                     analysis.implementationName = implData.result[0].ContractName || null;
                 }
             } catch (e) {}
+        }
+
+        // 3c. Fetch Parameters (Automatic Data Discovery)
+        const targetABI = await getContractABI(config, address);
+        if (targetABI) {
+            analysis.params = { ...analysis.params, ...(await fetchParams(provider, address, targetABI)) };
+        }
+        
+        // If it's a proxy, also fetch params from implementation
+        if (analysis.isProxy && analysis.implementation && analysis.implementation !== address) {
+            const implABI = await getContractABI(config, analysis.implementation);
+            if (implABI) {
+                // Merge params, implementation might overwrite proxy storage state if viewed through proxy
+                // But specifically we call it ON THE PROXY address but using implementation ABI if it's a proxy
+                analysis.params = { ...analysis.params, ...(await fetchParams(provider, address, implABI)) };
+            }
         }
 
         // 4. Secondary Data: Fetch creation hashes
@@ -387,6 +452,12 @@ async function scan(networkKey, startHash, limit = 1000) {
                 if (c.isProxy && c.proxyVerification) {
                     const v = c.proxyVerification;
                     console.log(`   Etherscan Linking: ${v.success ? "✅ Success (Linked)" : `❌ Failed (${v.message})`}`);
+                }
+                if (c.params && Object.keys(c.params).length > 0) {
+                    console.log(`   Current Parameters:`);
+                    for (const [key, val] of Object.entries(c.params)) {
+                        console.log(`     - ${key}: ${val}`);
+                    }
                 }
                 console.log(`   Created at Block: ${c.block}`);
                 console.log(`   Transaction: ${c.hash}`);
