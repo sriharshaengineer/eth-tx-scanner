@@ -88,6 +88,8 @@ async function analyzeContract(provider, config, address) {
         implementationHash: null,
         admin: null,
         adminHash: null,
+        adminOwner: null,
+        adminOwnerHash: null,
         beacon: null,
         proxyVerification: null,
         name: null,
@@ -187,6 +189,18 @@ async function analyzeContract(provider, config, address) {
         }
         if (analysis.admin) {
             analysis.adminHash = await getContractCreationHash(config, analysis.admin);
+            
+            // Check for Owner of ProxyAdmin
+            try {
+                const adminContract = new ethers.Contract(analysis.admin, ["function owner() view returns (address)"], provider);
+                const owner = await adminContract.owner();
+                if (owner && owner !== ethers.ZeroAddress) {
+                    analysis.adminOwner = owner;
+                    analysis.adminOwnerHash = await getContractCreationHash(config, owner);
+                }
+            } catch (e) {
+                // Not ownable or call failed
+            }
         }
 
         // 5. PRIMARY GOAL: Automatic Proxy Verification Trigger (Linking)
@@ -365,6 +379,10 @@ async function scan(networkKey, startHash, limit = 1000) {
                 if (c.admin) {
                     console.log(`   Proxy Admin: ${c.admin}`);
                     if (c.adminHash) console.log(`   Proxy Admin Hash: ${c.adminHash}`);
+                    if (c.adminOwner) {
+                        console.log(`   Proxy Admin Owner: ${c.adminOwner}`);
+                        if (c.adminOwnerHash) console.log(`   Proxy Admin Owner Hash: ${c.adminOwnerHash}`);
+                    }
                 }
                 if (c.isProxy && c.proxyVerification) {
                     const v = c.proxyVerification;
