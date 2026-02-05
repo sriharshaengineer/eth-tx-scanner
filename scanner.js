@@ -441,10 +441,18 @@ async function scan(networkKey, startHash, limit = 1000) {
             console.log("\n====================================================");
             console.log("           CREATED CONTRACTS SUMMARY");
             console.log("====================================================");
-            createdContracts.forEach((c, i) => {
+
+            // Build map of address to name for labeling
+            const addressToName = {};
+            createdContracts.forEach(c => {
                 const displayName = c.isProxy 
                     ? (c.implementationName ? `${c.implementationName} (Proxy: ${c.name || "Unknown"})` : (c.name || "Unknown Proxy"))
                     : (c.name || "Unknown Contract");
+                addressToName[c.address.toLowerCase()] = displayName;
+            });
+
+            createdContracts.forEach((c, i) => {
+                const displayName = addressToName[c.address.toLowerCase()];
                 
                 console.log(`${i + 1}. Name: ${displayName}`);
                 console.log(`   Address: ${c.address}`);
@@ -452,20 +460,27 @@ async function scan(networkKey, startHash, limit = 1000) {
                 console.log(`   Verification: ${c.verified ? "✅ Verified" : "❌ Not Verified"}`);
                 console.log(`   Proxy: ${c.isProxy ? "Yes" : "No"}`);
                 if (c.contractOwner) {
-                    console.log(`   Contract Owner: ${c.contractOwner}`);
+                    const ownerName = addressToName[c.contractOwner.toLowerCase()];
+                    console.log(`   Contract Owner: ${c.contractOwner}${ownerName ? ` (${ownerName})` : ""}`);
                     if (c.contractOwnerHash) console.log(`   Contract Owner Hash: ${c.contractOwnerHash}`);
                 }
                 if (c.implementation) {
-                    console.log(`   Implementation: ${c.implementation}`);
+                    const implName = addressToName[c.implementation.toLowerCase()];
+                    console.log(`   Implementation: ${c.implementation}${implName ? ` (${implName})` : ""}`);
                     if (c.implementationName) console.log(`   Implementation Name: ${c.implementationName}`);
                     if (c.implementationHash) console.log(`   Implementation Hash: ${c.implementationHash}`);
                 }
-                if (c.beacon) console.log(`   Beacon: ${c.beacon}`);
+                if (c.beacon) {
+                    const beaconName = addressToName[c.beacon.toLowerCase()];
+                    console.log(`   Beacon: ${c.beacon}${beaconName ? ` (${beaconName})` : ""}`);
+                }
                 if (c.admin) {
-                    console.log(`   Proxy Admin: ${c.admin}`);
+                    const adminName = addressToName[c.admin.toLowerCase()];
+                    console.log(`   Proxy Admin: ${c.admin}${adminName ? ` (${adminName})` : ""}`);
                     if (c.adminHash) console.log(`   Proxy Admin Hash: ${c.adminHash}`);
                     if (c.adminOwner) {
-                        console.log(`   Proxy Admin Owner: ${c.adminOwner}`);
+                        const adminOwnerName = addressToName[c.adminOwner.toLowerCase()];
+                        console.log(`   Proxy Admin Owner: ${c.adminOwner}${adminOwnerName ? ` (${adminOwnerName})` : ""}`);
                         if (c.adminOwnerHash) console.log(`   Proxy Admin Owner Hash: ${c.adminOwnerHash}`);
                     }
                 }
@@ -476,14 +491,28 @@ async function scan(networkKey, startHash, limit = 1000) {
                 if (c.params && Object.keys(c.params).length > 0) {
                     console.log(`   Current Parameters:`);
                     for (const [key, val] of Object.entries(c.params)) {
-                        console.log(`     - ${key}: ${val}`);
+                        let displayVal = val;
+                        if (typeof val === "string") {
+                            // Split by comma to handle arrays of addresses
+                            const parts = val.split(", ");
+                            const labeledParts = parts.map(part => {
+                                if (ethers.isAddress(part)) {
+                                    const knownName = addressToName[part.toLowerCase()];
+                                    return knownName ? `${part} (${knownName})` : part;
+                                }
+                                return part;
+                            });
+                            displayVal = labeledParts.join(", ");
+                        }
+                        console.log(`     - ${key}: ${displayVal}`);
                     }
                 }
                 console.log(`   Created at Block: ${c.block}`);
                 console.log(`   Transaction: ${c.hash}`);
                 console.log("");
             });
-        } else {
+        }
+ else {
             console.log("\nNo contract creations found in the scanned range.");
         }
 
