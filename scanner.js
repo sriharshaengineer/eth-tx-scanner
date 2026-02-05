@@ -2,7 +2,6 @@ const { ethers } = require("ethers");
 const fetch = require("node-fetch");
 require("dotenv").config();
 
-//TODO:: GET OWNER FOR ALL
 /**
  * Optimized Transaction Scanner
  * Uses Etherscan API to fetch transaction history much faster for a specific address.
@@ -134,6 +133,8 @@ async function analyzeContract(provider, config, address) {
         isProxy: false,
         implementation: null,
         implementationHash: null,
+        contractOwner: null,
+        contractOwnerHash: null,
         admin: null,
         adminHash: null,
         adminOwner: null,
@@ -252,6 +253,19 @@ async function analyzeContract(provider, config, address) {
         if (analysis.implementation) {
             analysis.implementationHash = await getContractCreationHash(config, analysis.implementation);
         }
+
+        // 4b. General Ownership Check (on the contract itself)
+        try {
+            const contract = new ethers.Contract(address, ["function owner() view returns (address)"], provider);
+            const owner = await contract.owner();
+            if (owner && owner !== ethers.ZeroAddress) {
+                analysis.contractOwner = owner;
+                analysis.contractOwnerHash = await getContractCreationHash(config, owner);
+            }
+        } catch (e) {
+            // Not ownable or call failed
+        }
+
         if (analysis.admin) {
             analysis.adminHash = await getContractCreationHash(config, analysis.admin);
             
@@ -412,6 +426,7 @@ async function scan(networkKey, startHash, limit = 1000) {
 
                 createdContracts.push({
                     address: contractAddr,
+                    deployer: tx.from,
                     hash: tx.hash,
                     block: tx.blockNumber,
                     ...analysis
@@ -433,8 +448,13 @@ async function scan(networkKey, startHash, limit = 1000) {
                 
                 console.log(`${i + 1}. Name: ${displayName}`);
                 console.log(`   Address: ${c.address}`);
+                console.log(`   Deployer: ${c.deployer}`);
                 console.log(`   Verification: ${c.verified ? "✅ Verified" : "❌ Not Verified"}`);
                 console.log(`   Proxy: ${c.isProxy ? "Yes" : "No"}`);
+                if (c.contractOwner) {
+                    console.log(`   Contract Owner: ${c.contractOwner}`);
+                    if (c.contractOwnerHash) console.log(`   Contract Owner Hash: ${c.contractOwnerHash}`);
+                }
                 if (c.implementation) {
                     console.log(`   Implementation: ${c.implementation}`);
                     if (c.implementationName) console.log(`   Implementation Name: ${c.implementationName}`);
