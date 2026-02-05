@@ -89,7 +89,9 @@ async function analyzeContract(provider, config, address) {
         admin: null,
         adminHash: null,
         beacon: null,
-        proxyVerification: null
+        proxyVerification: null,
+        name: null,
+        implementationName: null
     };
 
     try {
@@ -162,6 +164,21 @@ async function analyzeContract(provider, config, address) {
             if (!analysis.implementation && info.Implementation && info.Implementation !== ethers.ZeroAddress) {
                 analysis.implementation = ethers.getAddress(info.Implementation);
             }
+            if (info.ContractName) {
+                analysis.name = info.ContractName;
+            }
+        }
+
+        // 3b. If implementation exists but we don't have its name, fetch it
+        if (analysis.implementation) {
+            try {
+                const implUrl = `${config.etherscanBase}?module=contract&action=getsourcecode&address=${analysis.implementation}&chainid=${config.chainid}${API_KEY !== "YourApiKeyToken" ? `&apikey=${API_KEY}` : ""}`;
+                const implResponse = await fetch(implUrl);
+                const implData = await implResponse.json();
+                if (implData.status === "1" && implData.result && implData.result[0]) {
+                    analysis.implementationName = implData.result[0].ContractName || null;
+                }
+            } catch (e) {}
         }
 
         // 4. Secondary Data: Fetch creation hashes
@@ -331,11 +348,17 @@ async function scan(networkKey, startHash, limit = 1000) {
             console.log("           CREATED CONTRACTS SUMMARY");
             console.log("====================================================");
             createdContracts.forEach((c, i) => {
-                console.log(`${i + 1}. Address: ${c.address}`);
+                const displayName = c.isProxy 
+                    ? (c.implementationName ? `${c.implementationName} (Proxy: ${c.name || "Unknown"})` : (c.name || "Unknown Proxy"))
+                    : (c.name || "Unknown Contract");
+                
+                console.log(`${i + 1}. Name: ${displayName}`);
+                console.log(`   Address: ${c.address}`);
                 console.log(`   Verification: ${c.verified ? "✅ Verified" : "❌ Not Verified"}`);
                 console.log(`   Proxy: ${c.isProxy ? "Yes" : "No"}`);
                 if (c.implementation) {
                     console.log(`   Implementation: ${c.implementation}`);
+                    if (c.implementationName) console.log(`   Implementation Name: ${c.implementationName}`);
                     if (c.implementationHash) console.log(`   Implementation Hash: ${c.implementationHash}`);
                 }
                 if (c.beacon) console.log(`   Beacon: ${c.beacon}`);
