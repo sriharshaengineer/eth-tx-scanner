@@ -1,5 +1,6 @@
 const { ethers } = require("ethers");
 const fetch = require("node-fetch");
+const fs = require("fs");
 require("dotenv").config();
 
 /**
@@ -33,6 +34,15 @@ const IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a92
 const BEACON_SLOT = "0xa3f0ad74303ef594052300315d414dccea6a78378560244458f549733d314050";
 const EIP1822_SLOT = "0xc1ea3cb31412d4d339023403d7d6789184583196ed0e160a4f5f9e8a5dc8f553";
 const OZ_LEGACY_SLOT = "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3";
+
+function escapeCSV(val) {
+    if (val === null || val === undefined) return "";
+    let str = String(val);
+    if (str.includes(",") || str.includes("\"") || str.includes("\n") || str.includes("\r")) {
+        str = "\"" + str.replace(/"/g, "\"\"") + "\"";
+    }
+    return str;
+}
 
 async function getContractCreationHash(config, address) {
     if (API_KEY === "YourApiKeyToken") return null;
@@ -507,10 +517,83 @@ async function scan(networkKey, startHash, limit = 1000) {
                         console.log(`     - ${key}: ${displayVal}`);
                     }
                 }
-                console.log(`   Created at Block: ${c.block}`);
                 console.log(`   Transaction: ${c.hash}`);
                 console.log("");
             });
+
+            // --- Generate summary.csv ---
+            const headers = [
+                "No.",
+                "Name",
+                "Address",
+                "Deployer",
+                "Verification Status",
+                "Proxy",
+                "Implementation",
+                "Implementation Name",
+                "Implementation Hash",
+                "Proxy Admin",
+                "Proxy Admin Hash",
+                "Proxy Admin Owner",
+                "Proxy Admin Owner Hash",
+                "Contract Owner",
+                "Contract Owner Hash",
+                "Current Param Details",
+                "Created at Block",
+                "Transaction Hash"
+            ];
+
+            let csvContent = headers.join(",") + "\n";
+
+            createdContracts.forEach((c, i) => {
+                // Format parameters for CSV
+                let paramDetails = "";
+                if (c.params && Object.keys(c.params).length > 0) {
+                    paramDetails = Object.entries(c.params)
+                        .map(([key, val]) => {
+                            let displayVal = val;
+                            if (typeof val === "string") {
+                                const parts = val.split(", ");
+                                const labeledParts = parts.map(part => {
+                                    if (ethers.isAddress(part)) {
+                                        const knownName = addressToName[part.toLowerCase()];
+                                        return knownName ? `${part} (${knownName})` : part;
+                                    }
+                                    return part;
+                                });
+                                displayVal = labeledParts.join(", ");
+                            }
+                            return `${key}: ${displayVal}`;
+                        })
+                        .join(" | ");
+                }
+
+                const row = [
+                    i + 1,
+                    addressToName[c.address.toLowerCase()],
+                    c.address,
+                    c.deployer,
+                    c.verified ? "Verified" : "Not Verified",
+                    c.isProxy ? "Yes" : "No",
+                    c.implementation || "",
+                    c.implementationName || "",
+                    c.implementationHash || "",
+                    c.admin || "",
+                    c.adminHash || "",
+                    c.adminOwner || "",
+                    c.adminOwnerHash || "",
+                    c.contractOwner || "",
+                    c.contractOwnerHash || "",
+                    paramDetails,
+                    c.block,
+                    c.hash
+                ];
+
+                csvContent += row.map(val => escapeCSV(val)).join(",") + "\n";
+            });
+
+            fs.writeFileSync("summary.csv", csvContent);
+            console.log("Summary exported to summary.csv");
         }
  else {
             console.log("\nNo contract creations found in the scanned range.");
